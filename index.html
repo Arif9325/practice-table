@@ -289,6 +289,8 @@ input[type=range]{accent-color:var(--accent);width:180px}
       <button class="tog" role="switch" data-tog="das" aria-label="Double after split"><i></i></button></div>
     <div class="set"><div><b>Late surrender</b><span>Give up half your bet on the first two cards.</span></div>
       <button class="tog" role="switch" data-tog="ls" aria-label="Late surrender"><i></i></button></div>
+    <div class="set"><div><b>Split aces</b><span>Play on: hit, double and resplit aces like any other hand. One card: each ace gets one card and stands, as in most casinos.</span></div>
+      <div class="seg" data-seg="splitAces"><button data-v="play">Play on</button><button data-v="one">One card</button></div></div>
     <div class="set"><div><b>Decks in the shoe</b><span>Used for the shoe and true count. Strategy follows the 4–8 deck chart.</span></div>
       <div class="seg" data-seg="decks"><button data-v="1">1</button><button data-v="2">2</button><button data-v="4">4</button><button data-v="6">6</button><button data-v="8">8</button></div></div>
     <div class="set"><div><b>Penetration</b><span>How deep the cut card sits before a reshuffle.</span></div>
@@ -337,7 +339,7 @@ function handTotal(cards){ let t=0,a=0; for(const c of cards){ t+=val(c.r); if(c
 const isBJ = c => c.length===2 && handTotal(c).t===21;
 
 // ---------- state ----------
-const DEF={h17:true,das:true,ls:true,decks:6,pen:75,devs:true,checkEvery:3,showCount:false,speed:700,auto:true,bots:0};
+const DEF={h17:true,das:true,ls:true,decks:6,pen:75,devs:true,checkEvery:3,showCount:false,speed:700,auto:true,bots:0,splitAces:'play'};
 const S={set:{...DEF},stats:{},miss:{},best:{},tab:'bs',drill:{bs:'bs-mixed',ct:'ct-values'}};
 const KEY='practice-table-v1';
 try{ const s=JSON.parse(localStorage.getItem(KEY)||'null'); if(s){ Object.assign(S.set,s.set||{}); S.stats=s.stats||{}; S.miss=s.miss||{}; S.best=s.best||{}; if(s.tab) S.tab=s.tab; if(s.drill) Object.assign(S.drill,s.drill);} }catch(e){}
@@ -637,7 +639,7 @@ const DRILLS={
     {id:'bs-tricky',name:'Tricky spots',desc:'Cells people miss and cells that change with the rules.'},
     {id:'bs-weak',name:'My mistakes',desc:'Replays hands you missed until you get them right.'},
     {g:'Play'},
-    {id:'bs-playout',name:'Play it out',desc:'Each hand keeps going: every hit or split brings the next decision until the hand is done.'},
+    {id:'bs-playout',name:'Play it out',desc:'A normal game from a shoe: play every hand to the end, splits included, until the cut card.'},
     {id:'bs-speed',name:'60-second sprint',desc:'Correct decisions in one minute.'},
     {id:'bs-table',name:'Play full hands',desc:'Deal from a shoe and play every decision, splits included.'},
   ],
@@ -645,7 +647,7 @@ const DRILLS={
     {g:'Hi-Lo fundamentals'},
     {id:'ct-values',name:'Card values',desc:'+1, 0 or −1 for one card at a time.'},
     {id:'ct-groups',name:'Cancel groups',desc:'Net count of 2–4 cards at a glance.'},
-    {id:'ct-stream',name:'Running count',desc:'Cards flash at your speed. Report the count.'},
+    {id:'ct-stream',name:'Running count',desc:'Cards from a real shoe flash at your speed. Report the count.'},
     {id:'ct-deck',name:'Deck countdown',desc:'Count 51 cards against the clock and name the last.'},
     {id:'ct-true',name:'True count',desc:'Divide by decks left and round down.'},
     {g:'Playing the count'},
@@ -832,11 +834,11 @@ function streamIntro(){
   CUR={key:k=>{ if(k===' '||k==='enter'){ streamRun(); return true; } },next:streamRun};
   setFelt(rawFelt({title:'Running count',body:`<div class="big-msg"><b>Keep a running count</b><span>Cards flash one at a time. When they stop, type your count.</span></div>`}));
   setControls(`<div class="row"><label class="fld">Cards<select id="stN">${[10,20,30,52].map(v=>`<option value="${v}" ${v===ST.n?'selected':''}>${v}</option>`).join('')}</select></label><label class="fld">Speed per card<input type="range" id="stSpeed" min="250" max="1500" step="50" value="${S.set.speed}"><output id="stSpeedOut">${S.set.speed} ms</output></label><button class="btn primary" data-next>Start <kbd>Space</kbd></button></div>`);
-  setFeedback(fbHTML(null,'Ready','Set the pace, then start','Lower the speed as you get faster. Casino pace is roughly one card every 400 ms.'));
+  setFeedback(fbHTML(null,'Ready','Set the pace, then start',`Cards come from a freshly shuffled ${S.set.decks}-deck shoe, so a full single deck always counts back to 0. Casino pace is roughly one card every 400 ms.`));
 }
 async function streamRun(){
   const tok=++RUN; const sel=$('#stN'); if(sel) ST.n=+sel.value;
-  ST.cards=Array.from({length:ST.n},randCard); CUR={};
+  ST.cards=shuffle([].concat(...Array.from({length:S.set.decks},fullDeck))).slice(0,ST.n); CUR={};
   setControls(''); setFeedback(fbHTML(null,'Counting','Watch the cards'));
   for(let i=0;i<ST.cards.length;i++){
     setFelt(rawFelt({title:'Running count',hud:`<span class="hud-i">${i+1} / ${ST.n}</span>`,body:`<div class="solo">${cardHTML(ST.cards[i],false,'xl')}</div>`}));
@@ -943,13 +945,14 @@ function tqCheck(){
 const GM={};
 DR['bs-table']={start:()=>gameStart('bs')};
 DR['ct-table']={start:()=>gameStart('count')};
-DR['bs-playout']={start:()=>gameStart('bs',{id:'bs-playout',title:'Play it out',infinite:true})};
+DR['bs-playout']={start:()=>gameStart('bs',{id:'bs-playout',title:'Play it out',endAtCut:true})};
 function gameStart(mode,opt={}){
-  GM.infinite=!!opt.infinite; GM.title=opt.title||(mode==='bs'?'Play full hands':'Full shoe');
+  GM.infinite=!!opt.infinite; GM.endAtCut=!!opt.endAtCut; GM.title=opt.title||(mode==='bs'?'Play full hands':'Full shoe');
   GM.mode=mode; GM.id=opt.id||(mode==='bs'?'bs-table':'ct-table'); GM.units=0; GM.botHands=[]; GM.botOut=null; GM.botAct=-1; GM.rounds=0; GM.hands=[]; GM.dealer=[];
   newShoe(); GM.phase='ready';
-  CUR={act:gAct,deal,submit:gCheck,newshoe:()=>{ newShoe(); renderGame(); setFeedback(fbHTML(null,'Shuffled','Fresh shoe','Running count is back to 0.')); },
+  CUR={act:gAct,deal,submit:gCheck,newshoe:()=>{ if(!['ready','done','shoeEnd'].includes(GM.phase)) return; newShoe(); GM.phase='ready'; GM.dealer=[]; GM.hands=[]; GM.botHands=[]; renderGame(); gControls(); setFeedback(fbHTML(null,'Shuffled','Fresh shoe',GM.mode==='count'?'Running count is back to 0.':'Press Deal to start.')); },
     key:k=>{
+      if((k===' '||k==='enter')&&GM.phase==='shoeEnd'){ CUR.newshoe(); return true; }
       if((k===' '||k==='enter')&&['ready','done'].includes(GM.phase)){ deal(); return true; }
       if((k==='+'||k==='='||k==='-')&&['ready','done'].includes(GM.phase)){ CUR.bots(k==='-'?-1:1); return true; }
       const m={h:'H',s:'S',d:'D',p:'P',r:'R',y:'Y',n:'N'}[k]; if(m){ gAct(m); return true; }
@@ -958,7 +961,7 @@ function gameStart(mode,opt={}){
     toggleCount:()=>{ S.set.showCount=!S.set.showCount; save(); syncSettings(); renderGame(); }};
   renderGame(); gControls();
   setFeedback(fbHTML(null,'Ready', mode==='bs'?'Deal a hand':'Deal and start counting',
-    GM.infinite?'Starting hands lean toward ones that need several decisions: small totals, soft hands and pairs. Play each hand until it stands, busts or doubles, then watch the dealer finish.':mode==='bs'?'Every decision is checked. A wrong move is blocked and the right one is highlighted.':`Count every card you see, including the dealer’s hole card when it flips. Bets follow a 1–8 unit ramp on the true count. ${S.set.devs?'Deviations are on.':'Deviations are off in Settings.'}`));
+    GM.endAtCut?`A normal game dealt from a ${S.set.decks}-deck shoe. Every hand keeps going until you stand, bust or double, and split hands are played one after the other. Rounds continue until the cut card comes out.`:mode==='bs'?'Every decision is checked. A wrong move is blocked and the right one is highlighted.':`Count every card you see, including the dealer’s hole card when it flips. Bets follow a 1–8 unit ramp on the true count. ${S.set.devs?'Deviations are on.':'Deviations are off in Settings.'}`));
 }
 function newShoe(){
   const a=[]; for(let k=0;k<S.set.decks;k++) a.push(...fullDeck());
@@ -969,7 +972,7 @@ const decksLeft=()=>Math.max(.5,Math.round((GM.shoe.length-GM.pos)/26)/2);
 const trueC=()=>Math.floor(GM.rc/decksLeft());
 const betFor=tc=>tc<=1?1:tc===2?2:tc===3?4:tc===4?6:8;
 const upVal=()=>val(GM.dealer[0].r);
-function ctxFor(h){ return {split:!!h.split,canSplit:GM.hands.length<4&&!h.fromAces,tc:(GM.mode==='count'&&S.set.devs)?trueC():null}; }
+function ctxFor(h){ return {split:!!h.split,canSplit:GM.hands.length<4&&!(h.fromAces&&S.set.splitAces==='one'),tc:(GM.mode==='count'&&S.set.devs)?trueC():null}; }
 function revealHole(){ if(!GM.hole&&GM.dealer[1]){ GM.hole=true; GM.rc+=hilo(GM.dealer[1].r); } }
 function renderGame(){
   const counting=GM.mode==='count';
@@ -978,7 +981,7 @@ function renderGame(){
   if(counting){
     hud+= S.set.showCount ? `<span class="hud-i">RC ${sgn(GM.rc)} · TC ${sgn(trueC())} <button data-togglecount>hide</button></span>` : `<span class="hud-i">Count hidden <button data-togglecount>show</button></span>`;
   }
-  hud+=`<span class="hud-i">Round ${GM.rounds+(['ready','done','check'].includes(GM.phase)?0:1)} · ${GM.units>=0?'+':'−'}${Math.abs(GM.units)}u</span>`;
+  hud+=`<span class="hud-i">Round ${GM.rounds+(['ready','done','check','shoeEnd'].includes(GM.phase)?0:1)} · ${GM.units>=0?'+':'−'}${Math.abs(GM.units)}u</span>`;
   if(!GM.dealer.length){
     const nb=S.set.bots|0;
     setFelt(tableFelt({title:GM.title,hud,dealer:'',player:`<div class="ftag">Press Deal to start. ${nb?`${nb} other player${nb>1?'s':''} at the table, acting before you.`:'You’re playing alone.'}</div>`}));
@@ -1008,6 +1011,12 @@ function gControls(){
 }
 function deal(){
   if(!['ready','done'].includes(GM.phase)) return;
+  if(GM.endAtCut&&GM.pos>=GM.cut){
+    GM.phase='shoeEnd'; renderGame();
+    setControls(`<div class="row"><button class="btn primary big" data-newshoe>Shuffle a new shoe <kbd>Space</kbd></button></div>`);
+    setFeedback(fbHTML(null,'Shoe finished',`The cut card came out after ${GM.rounds} round${GM.rounds===1?'':'s'}`,`${sess.c} of ${sess.n} decisions right this session. Net ${GM.units>=0?'+':'−'}${Math.abs(GM.units)}u.`));
+    return;
+  }
   let note='';
   if(!GM.infinite&&(GM.pos>=GM.cut||GM.shoe.length-GM.pos<15)){ newShoe(); note='Cut card reached. New shoe, running count back to 0. '; }
   const tc=trueC(); GM.bet=GM.mode==='count'?betFor(tc):1;
@@ -1099,7 +1108,7 @@ function apply(h,a){
     const nh={cards:[c],bet:GM.bet,split:true,fromAces:aces};
     h.cards.push(draw()); nh.cards.push(draw());
     GM.hands.splice(GM.active+1,0,nh);
-    for(const x of [h,nh]) if(aces||handTotal(x.cards).t===21) x.done=true;
+    for(const x of [h,nh]) if((aces&&S.set.splitAces==='one')||handTotal(x.cards).t===21) x.done=true;
   }
   advance();
 }
@@ -1312,7 +1321,7 @@ function changed(key){
   save(); syncSettings();
   if(S.tab==='chart') renderChart();
   const cur=S.drill[S.tab];
-  if((key==='decks'||key==='pen')&&(cur==='bs-table'||cur==='ct-table'||cur==='ct-true')&&S.tab!=='chart') startDrill(cur);
+  if((key==='decks'||key==='pen')&&(cur==='bs-table'||cur==='bs-playout'||cur==='ct-table'||cur==='ct-true')&&S.tab!=='chart') startDrill(cur);
   if(key==='showCount'&&GM.shoe&&(cur==='ct-table')&&S.tab==='ct') renderGame();
 }
 const parseV=v=>v==='true'?true:v==='false'?false:/^\d+$/.test(v)?+v:v;
